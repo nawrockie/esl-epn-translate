@@ -14,21 +14,36 @@ use Bio::Easel::SqFile;
 
 my $in_fafile        = "";  # name of input fasta file
 
-my $do_endatstop = 0; # if '1' stop translating at first stop encountered, changed to 1 if -endatstop is invoked
-my $do_nostop    = 0; # if '1' do not translate stop to '*', changed to 1 if -endatstop is invoked
+# options affecting output in normal (translate) mode
+my $do_translate   = 1; # changed to '0' if one of alternative output modes is selected
+my $do_onlyfull    = 0; # if '1' only output full sequences (that start with 'ATG' and stop with stop)
+my $do_endatstop   = 0; # if '1' stop translating at first stop encountered, changed to 1 if -endatstop is invoked
+my $do_nostop      = 0; # if '1' do not translate stop to '*', changed to 1 if -endatstop is invoked
 
-&GetOptions( "endatstop"  => \$do_endatstop,
-             "nostop"     => \$do_nostop) || die "ERROR unknown option";
+# options for alternative output:
+my $do_firststop = 0; # if '1' DO NOT translate the sequences, instead find position of first in-frame stop codon and report that for each seq, -1 for none
+
+&GetOptions( "onlyfull"    => \$do_onlyfull,
+             "endatstop"   => \$do_endatstop,
+             "nostop"      => \$do_nostop,
+             "firststop"   => \$do_firststop) || die "ERROR unknown option";
 
 my $usage;
-$usage  = "esl-epn-translate.pl [OPTIONS] <input fasta file to translate>\n";
-$usage .= "\tOPTIONS:\n";
+$usage  = "esl-epn-translate.pl [OPTIONS] <input fasta file to translate (or analyze)>\n\n";
+$usage .= "\tOPTIONS THAT AFFECT TRANSLATION:\n";
+$usage .= "\t\t-onlyfull:  : only output translated sequences that are full length (start with stop and stop with stop)\n";
 $usage .= "\t\t-endatstop  : terminate translation at first stop codon      [default: keep going]\n";
 $usage .= "\t\t-nostop     : do not print stop codons (requires -endatstop) [default: do, as '*' chars]\n";
+$usage .= "\tOPTIONS FOR ALTERNATIVE OUTPUT (NO TRANSLATION PERFORMED)\n";
+$usage .= "\t\t-firststop : output 1st position [1..seqlen] of first in-frame stop, -1 for none found";
 #$usage .= "\t\t-skipinc   : skip examination of incomplete CDS'\n";
 
 if($do_nostop && (! $do_endatstop)) { 
   die "ERROR -nostop requires -endatstop";
+}
+# turn off translate mode if nec
+if($do_firststop) { 
+  $do_translate = 0;
 }
 
 if(scalar(@ARGV) != 1) { die $usage; }
@@ -60,12 +75,28 @@ for(my $i = 0; $i < $nseq; $i++) {
   # sanity check
   if($cds_name ne $cds_name2) { die "ERROR, unexpected error, name mismatch ($cds_name ne $cds_name2)"; }
 
-  # 2. translate the CDS sequence
-  my $prot_translated = translateDNA($cds_seq, 1, $do_endatstop, $do_nostop);
+  if($do_translate) { 
+    # 2. translate the CDS sequence or 
+    my ($prot_translated, $is_full) = translateDNA($cds_seq, 1, $do_endatstop, $do_nostop);
 
-  # 3. output the protein sequence
-  print(">seq\n$prot_translated\n");
+    # 3. output the protein sequence
+    if((! $do_onlyfull) || $is_full) { 
+      printf(">%s%s\n$prot_translated\n", $cds_name, "-translated");
+    }
+  }
+  if($do_firststop) { 
+    my ($prot_translated, $is_full) = translateDNA($cds_seq, 1, 1, 0); # $do_endatstop: 1, $do_nostop: 0
+    my $prot_len = length($prot_translated);
+    my $final_char = substr($prot_translated, -1, 1);
+    my $first_stop = -1;
+    if($final_char eq "*") { 
+      $first_stop = (($prot_len-1) * 3) + 1; 
+    }
+    printf("$cds_name $first_stop\n");
+  }
 }
+
+if(-e $in_fafile . ".ssi") { unlink $in_fafile . ".ssi"; }
 exit 0;
 
 ##############
@@ -77,7 +108,10 @@ exit 0;
 #             $codon_start:  N=1|2|3, translation of CDS starts at position N
 #             $do_endatstop: '1' to end at first stop codon
 #             $do_nostop:    '1' to not output stop codon
-# Returns:    translated protein sequence as a string
+# Returns:    Two values: 
+#             $protein: translated protein sequence as a string
+#             $is_full: '1' if translated protein sequence is full length 
+#                       (starts with start, stops with stop, and length is a multiple of 3)
 sub translateDNA { 
   my $sub_name = "translateDNA()";
   my $nargs_exp = 4;
@@ -87,16 +121,23 @@ sub translateDNA {
   
   if($codon_start !~ /^[123]$/) { die "ERROR in translateDNA, invalid codon_start: $codon_start"; }
 
+  my $prot_length = 0;
   my $length = length($cds_seq);
   my $posn = $codon_start - 1;
   my $protein = "";
+  my $starts_with_start = 0;
+  my $stops_with_stop   = 0;
+  my $aa = undef;
 #  my $n_N        = 0;
 #  my $n_nonACGTN = 0;
-  while($posn < $length) { 
+  while(($length - $posn) >= 3) { 
     my $codon = substr($cds_seq, $posn, 3);
-    my $aa    = translateCodon($codon);
+    $aa = translateCodon($codon);
+    if($posn == 0 && $aa eq "M") { 
+      $starts_with_start = 1;
+    }
     if($aa ne "*" || (! $do_nostop)) { 
-      $protein .= translateCodon($codon);
+      $protein .= $aa;
     }
     if($do_endatstop && $aa eq "*") { 
       $posn = $length; # breaks while loop
@@ -115,7 +156,11 @@ sub translateDNA {
     # }
   }
 
-  return ($protein);
+  if(defined $aa && $aa eq "*") { $stops_with_stop = 1; }
+
+  my $is_full = (($length % 3 == 0) && $starts_with_start && $stops_with_stop) ? 1 : 0;
+
+  return ($protein, $is_full);
 }
 
 # Subroutine: translateCodon()
