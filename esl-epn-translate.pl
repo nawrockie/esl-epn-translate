@@ -16,14 +16,18 @@ my $in_fafile        = "";  # name of input fasta file
 
 # options affecting output in normal (translate) mode
 my $do_translate   = 1; # changed to '0' if one of alternative output modes is selected
-my $do_onlyfull    = 0; # if '1' only output full sequences (that start with 'ATG' and stop with stop)
+my $do_reqstart    = 0; # if '1' only output sequences that start with 'ATG'
+my $do_reqstop     = 0; # if '1' only output sequences that stop with valid stop codon
 my $do_endatstop   = 0; # if '1' stop translating at first stop encountered, changed to 1 if -endatstop is invoked
 my $do_nostop      = 0; # if '1' do not translate stop to '*', changed to 1 if -endatstop is invoked
 
 # options for alternative output:
-my $do_firststop = 0; # if '1' DO NOT translate the sequences, instead find position of first in-frame stop codon and report that for each seq, -1 for none
+my $do_firststop = 0; # if '1' DO NOT translate the sequences, instead find position of first in-frame stop 
+                      # codon and report that for each seq, 0 for none
 
-&GetOptions( "onlyfull"    => \$do_onlyfull,
+
+&GetOptions( "reqstart"    => \$do_reqstart,
+             "reqstop"     => \$do_reqstop,
              "endatstop"   => \$do_endatstop,
              "nostop"      => \$do_nostop,
              "firststop"   => \$do_firststop) || die "ERROR unknown option";
@@ -31,16 +35,21 @@ my $do_firststop = 0; # if '1' DO NOT translate the sequences, instead find posi
 my $usage;
 $usage  = "esl-epn-translate.pl [OPTIONS] <input fasta file to translate (or analyze)>\n\n";
 $usage .= "\tOPTIONS THAT AFFECT TRANSLATION:\n";
-$usage .= "\t\t-onlyfull:  : only output translated sequences that are full length (start with stop and stop with stop)\n";
+$usage .= "\t\t-reqstart   : only output translated sequences that start with a valid start codon\n";
+$usage .= "\t\t-reqstop    : only output translated sequences that stop  with a valid stop  codon\n";
 $usage .= "\t\t-endatstop  : terminate translation at first stop codon      [default: keep going]\n";
 $usage .= "\t\t-nostop     : do not print stop codons (requires -endatstop) [default: do, as '*' chars]\n";
 $usage .= "\tOPTIONS FOR ALTERNATIVE OUTPUT (NO TRANSLATION PERFORMED)\n";
-$usage .= "\t\t-firststop : output 1st position [1..seqlen] of first in-frame stop, -1 for none found";
+$usage .= "\t\t-startstop : output three numbers per sequence on same line, separated by space:\n";
+$usage .= "\t\t           : <d1>: '1' if first 3 nt are a valid start codon (ATG), else '0'\n";
+$usage .= "\t\t           : <d2>: '1' if final 3 nt are a valid in-frame stop codon (TAA|TAG|TGA), else '0'\n";
+$usage .= "\t\t           : <d3>: 1st position of first in-frame stop codon [1..seqlen], 0 if none found\n";
 #$usage .= "\t\t-skipinc   : skip examination of incomplete CDS'\n";
 
 if($do_nostop && (! $do_endatstop)) { 
   die "ERROR -nostop requires -endatstop";
 }
+
 # turn off translate mode if nec
 if($do_firststop) { 
   $do_translate = 0;
@@ -62,37 +71,39 @@ my $nseq = $sqfile->nseq_ssi;
 
 # for each sequence in $in_fafile:
 for(my $i = 0; $i < $nseq; $i++) { 
-  # 1. fetch the CDS sequence from $in_fafile
-  my ($cds_name) = $sqfile->fetch_seq_name_given_ssi_number($i);
 
-  my ($cds_name2, $cds_seq) = split(/\n/, $sqfile->fetch_seq_to_fasta_string($cds_name, -1));
-  $cds_name2 =~ s/^\>//;
-  my $cds_desc = $cds_name2; 
+  # 1. fetch the next sequence to translate from $in_fafile
+  my ($cds_name, $cds_seq) = split(/\n/, $sqfile->fetch_consecutive_seqs(1, "", -1, undef));
+  $cds_name =~ s/^\>//;
+  my $cds_desc = $cds_name; 
   $cds_desc =~ s/^\S+//;
   $cds_desc =~ s/^\s+//;
-  $cds_name2 =~ s/\s+.+$//;
-
-  # sanity check
-  if($cds_name ne $cds_name2) { die "ERROR, unexpected error, name mismatch ($cds_name ne $cds_name2)"; }
+  $cds_name =~ s/\s+.+$//;
 
   if($do_translate) { 
     # 2. translate the CDS sequence or 
-    my ($prot_translated, $is_full) = translateDNA($cds_seq, 1, $do_endatstop, $do_nostop);
+    my ($prot_translated, $starts_with_start, $stops_with_stop, undef) = translateDNA($cds_seq, $do_endatstop, $do_nostop);
 
     # 3. output the protein sequence
-    if((! $do_onlyfull) || $is_full) { 
+    my $do_not_output = 0;
+    if($do_reqstart && (! $starts_with_start)) { $do_not_output = 1; }
+    if($do_reqstop  && (! $stops_with_stop))   { $do_not_output = 1; }
+    if(! $do_not_output) { 
       printf(">%s%s\n$prot_translated\n", $cds_name, "-translated");
     }
   }
   if($do_firststop) { 
-    my ($prot_translated, $is_full) = translateDNA($cds_seq, 1, 1, 0); # $do_endatstop: 1, $do_nostop: 0
-    my $prot_len = length($prot_translated);
+    my ($prot_translated, $starts_with_start, $stops_with_stop, $is_full) = translateDNA($cds_seq, 1, 0); # $do_endatstop: 1, $do_nostop: 0
+    my $prot_len   = length($prot_translated);
     my $final_char = substr($prot_translated, -1, 1);
-    my $first_stop = -1;
+    my $first_stop;
     if($final_char eq "*") { 
       $first_stop = (($prot_len-1) * 3) + 1; 
     }
-    printf("$cds_name $first_stop\n");
+    else { 
+      $first_stop = 0; 
+    }
+    printf("$cds_name $starts_with_start $stops_with_stop $first_stop\n");
   }
 }
 
@@ -105,38 +116,45 @@ exit 0;
 
 # Subroutine: translateDNA()
 # Args:       $cds_seq:      CDS sequence
-#             $codon_start:  N=1|2|3, translation of CDS starts at position N
 #             $do_endatstop: '1' to end at first stop codon
 #             $do_nostop:    '1' to not output stop codon
 # Returns:    Two values: 
-#             $protein: translated protein sequence as a string
-#             $is_full: '1' if translated protein sequence is full length 
-#                       (starts with start, stops with stop, and length is a multiple of 3)
+#             $protein:           translated protein sequence as a string
+#             $starts_with_start: '1' if first 3 nt are 'ATG'
+#             $stops_with_stop:   '1' if final codon is 'TAA' or 'TAG' or 'TGA' that is in-frame of stop
+#             $is_full:           '1' if translated protein sequence is full length 
+#                                 (starts with start, stops with stop, length is a multiple of 3, no internal stops)
 sub translateDNA { 
   my $sub_name = "translateDNA()";
-  my $nargs_exp = 4;
+  my $nargs_exp = 3;
   if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
 
-  my ($cds_seq, $codon_start, $do_endatstop, $do_nostop) = (@_);
+  my ($cds_seq, $do_endatstop, $do_nostop) = (@_);
   
-  if($codon_start !~ /^[123]$/) { die "ERROR in translateDNA, invalid codon_start: $codon_start"; }
-
-  my $prot_length = 0;
-  my $length = length($cds_seq);
-  my $posn = $codon_start - 1;
+  my $length  = length($cds_seq);
+  if($length < 3) { 
+    return ("", 0, 0, 0);
+  }
+  my $posn    = 0;
   my $protein = "";
-  my $starts_with_start = 0;
-  my $stops_with_stop   = 0;
   my $aa = undef;
+  # determine if first 3 nt are a valid start
+  my $start_codon = substr($cds_seq, 0,  3);
+  my $stop_codon  = substr($cds_seq, -3, 3);
+  my $start_aa = translateCodon($start_codon);
+  my $stop_aa  = translateCodon($stop_codon);
+
 #  my $n_N        = 0;
 #  my $n_nonACGTN = 0;
+  my $protein_len = 0;
   while(($length - $posn) >= 3) { 
     my $codon = substr($cds_seq, $posn, 3);
     $aa = translateCodon($codon);
-    if($posn == 0 && $aa eq "M") { 
-      $starts_with_start = 1;
+    if($aa ne "*") { 
+      $protein .= $aa;
+      $protein_len++;
     }
-    if($aa ne "*" || (! $do_nostop)) { 
+    elsif(($aa eq "*") && (! $do_nostop)) { 
       $protein .= $aa;
     }
     if($do_endatstop && $aa eq "*") { 
@@ -156,11 +174,20 @@ sub translateDNA {
     # }
   }
 
-  if(defined $aa && $aa eq "*") { $stops_with_stop = 1; }
+  my $starts_with_start = ($start_aa eq "M") ? 1 : 0;
+  my $stops_with_stop  = (($length % 3 == 0) && ($stop_aa eq "*")) ? 1 : 0;
 
-  my $is_full = (($length % 3 == 0) && $starts_with_start && $stops_with_stop) ? 1 : 0;
+  # determine if we translated start..stop, and had valid start and stop
+  my $is_full = 0;
+  if($length % 3 == 0) { 
+    if(($protein_len+1) == ($length / 3) &&  # +1 is for stop codon which we didn't include in protein_len
+       $starts_with_start                && 
+       $stops_with_stop) { 
+      $is_full = 1;
+    }
+  }
 
-  return ($protein, $is_full);
+  return ($protein, $starts_with_start, $stops_with_stop, $is_full);
 }
 
 # Subroutine: translateCodon()
