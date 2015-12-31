@@ -22,7 +22,7 @@ my $do_endatstop   = 0; # if '1' stop translating at first stop encountered, cha
 my $do_nostop      = 0; # if '1' do not translate stop to '*', changed to 1 if -endatstop is invoked
 
 # options for alternative output:
-my $do_firststop = 0; # if '1' DO NOT translate the sequences, instead find position of first in-frame stop 
+my $do_startstop = 0; # if '1' DO NOT translate the sequences, instead find position of first in-frame stop 
                       # codon and report that for each seq, 0 for none
 
 
@@ -30,7 +30,7 @@ my $do_firststop = 0; # if '1' DO NOT translate the sequences, instead find posi
              "reqstop"     => \$do_reqstop,
              "endatstop"   => \$do_endatstop,
              "nostop"      => \$do_nostop,
-             "firststop"   => \$do_firststop) || die "ERROR unknown option";
+             "startstop"   => \$do_startstop) || die "ERROR unknown option";
 
 my $usage;
 $usage  = "esl-epn-translate.pl [OPTIONS] <input fasta file to translate (or analyze)>\n\n";
@@ -51,7 +51,7 @@ if($do_nostop && (! $do_endatstop)) {
 }
 
 # turn off translate mode if nec
-if($do_firststop) { 
+if($do_startstop) { 
   $do_translate = 0;
 }
 
@@ -92,7 +92,7 @@ for(my $i = 0; $i < $nseq; $i++) {
       printf(">%s%s\n$prot_translated\n", $cds_name, "-translated");
     }
   }
-  if($do_firststop) { 
+  if($do_startstop) { 
     my ($prot_translated, $starts_with_start, $stops_with_stop, $is_full) = translateDNA($cds_seq, 1, 0); # $do_endatstop: 1, $do_nostop: 0
     my $prot_len   = length($prot_translated);
     my $final_char = substr($prot_translated, -1, 1);
