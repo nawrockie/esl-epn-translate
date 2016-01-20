@@ -22,15 +22,17 @@ my $do_endatstop   = 0; # if '1' stop translating at first stop encountered, cha
 my $do_nostop      = 0; # if '1' do not translate stop to '*', changed to 1 if -endatstop is invoked
 
 # options for alternative output:
-my $do_startstop = 0; # if '1' DO NOT translate the sequences, instead find position of first in-frame stop 
-                      # codon and report that for each seq, 0 for none
+my $do_liststarts = 0; # if '1' DO NOT translate the sequences, instead list positions/frames of all start codons
+my $do_startstop  = 0; # if '1' DO NOT translate the sequences, instead find position of first in-frame stop 
+                       # codon and report that for each seq, 0 for none
 
 
 &GetOptions( "reqstart"    => \$do_reqstart,
              "reqstop"     => \$do_reqstop,
              "endatstop"   => \$do_endatstop,
              "nostop"      => \$do_nostop,
-             "startstop"   => \$do_startstop) || die "ERROR unknown option";
+             "liststarts"  => \$do_liststarts,
+             "startstop"   => \$do_startstop)  || die "ERROR unknown option";
 
 my $usage;
 $usage  = "esl-epn-translate.pl [OPTIONS] <input fasta file to translate (or analyze)>\n\n";
@@ -40,18 +42,22 @@ $usage .= "\t\t-reqstop    : only output translated sequences that stop  with a 
 $usage .= "\t\t-endatstop  : terminate translation at first stop codon      [default: keep going]\n";
 $usage .= "\t\t-nostop     : do not print stop codons (requires -endatstop) [default: do, as '*' chars]\n";
 $usage .= "\tOPTIONS FOR ALTERNATIVE OUTPUT (NO TRANSLATION PERFORMED)\n";
-$usage .= "\t\t-startstop : output three numbers per sequence on same line, separated by space:\n";
-$usage .= "\t\t           : <d1>: '1' if first 3 nt are a valid start codon (ATG), else '0'\n";
-$usage .= "\t\t           : <d2>: '1' if final 3 nt are a valid in-frame stop codon (TAA|TAG|TGA), else '0'\n";
-$usage .= "\t\t           : <d3>: 1st position of first in-frame stop codon [1..seqlen], 0 if none found\n";
+$usage .= "\t\t-liststarts : list start positions and frames of all start codons in each sequence <position 1..L>:<frame 0|1|2>, ...\n";
+$usage .= "\t\t-startstop  : output three numbers per sequence on same line, separated by space:\n";
+$usage .= "\t\t            : <d1>: '1' if first 3 nt are a valid start codon (ATG), else '0'\n";
+$usage .= "\t\t            : <d2>: '1' if final 3 nt are a valid in-frame stop codon (TAA|TAG|TGA), else '0'\n";
+$usage .= "\t\t            : <d3>: 1st position of first in-frame stop codon [1..seqlen], 0 if none found\n";
 #$usage .= "\t\t-skipinc   : skip examination of incomplete CDS'\n";
 
 if($do_nostop && (! $do_endatstop)) { 
   die "ERROR -nostop requires -endatstop";
 }
+if($do_startstop && $do_liststarts) { 
+  die "ERROR -startstop and -liststarts cannot be used in combination";
+}
 
 # turn off translate mode if nec
-if($do_startstop) { 
+if($do_liststarts || $do_startstop) { 
   $do_translate = 0;
 }
 
@@ -92,7 +98,25 @@ for(my $i = 0; $i < $nseq; $i++) {
       printf(">%s%s\n$prot_translated\n", $cds_name, "-translated");
     }
   }
-  if($do_startstop) { 
+  if($do_liststarts) { 
+    $cds_seq =~ tr/a-z/A-Z/;
+    $cds_seq =~ tr/U/T/;
+    my $posn = 0;
+    my $cds_len = length($cds_seq);
+    my $nstart = 0;
+    print("$cds_name");
+    while($posn < ($cds_len-2)) { 
+      if(substr($cds_seq, $posn, 3) eq "ATG") { 
+        if($nstart == 0) { print " ";  }
+        else             { print(","); }
+        printf("%d:%d", $posn+1, $posn%3);
+        $nstart++;
+      }
+      $posn++;
+    }
+    print("\n");
+  }
+  elsif($do_startstop) { 
     my ($prot_translated, $starts_with_start, $stops_with_stop, $is_full) = translateDNA($cds_seq, 1, 0); # $do_endatstop: 1, $do_nostop: 0
     my $prot_len   = length($prot_translated);
     my $final_char = substr($prot_translated, -1, 1);
