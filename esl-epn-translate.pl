@@ -20,6 +20,8 @@ my $do_reqstart    = 0; # if '1' only output sequences that start with 'ATG'
 my $do_reqstop     = 0; # if '1' only output sequences that stop with valid stop codon
 my $do_endatstop   = 0; # if '1' stop translating at first stop encountered, changed to 1 if -endatstop is invoked
 my $do_nostop      = 0; # if '1' do not translate stop to '*', changed to 1 if -endatstop is invoked
+my $do_altstart    = 0;      # if '1' -altstart is used (requires -startstop)
+my $altstart_str   = undef; 
 
 # options for alternative output:
 my $do_liststarts = 0; # if '1' DO NOT translate the sequences, instead list positions/frames of all start codons
@@ -31,6 +33,7 @@ my $do_startstop  = 0; # if '1' DO NOT translate the sequences, instead find pos
              "reqstop"     => \$do_reqstop,
              "endatstop"   => \$do_endatstop,
              "nostop"      => \$do_nostop,
+             "altstart=s"  => \$altstart_str,
              "liststarts"  => \$do_liststarts,
              "startstop"   => \$do_startstop)  || die "ERROR unknown option";
 
@@ -41,6 +44,8 @@ $usage .= "\t\t-reqstart   : only output translated sequences that start with a 
 $usage .= "\t\t-reqstop    : only output translated sequences that stop  with a valid stop  codon\n";
 $usage .= "\t\t-endatstop  : terminate translation at first stop codon      [default: keep going]\n";
 $usage .= "\t\t-nostop     : do not print stop codons (requires -endatstop) [default: do, as '*' chars]\n";
+$usage .= "\t\t-altstart <s>: accept only start codons specified in <s> (each separated by a comma)\n";
+$usage .= "\t\t               (only valid in combination with -reqstart or -startstop\n";
 $usage .= "\tOPTIONS FOR ALTERNATIVE OUTPUT (NO TRANSLATION PERFORMED)\n";
 $usage .= "\t\t-liststarts : list start positions and frames of all start codons in each sequence <position 1..L>:<frame 0|1|2>, ...\n";
 $usage .= "\t\t-startstop  : output three numbers per sequence on same line, separated by space:\n";
@@ -49,11 +54,23 @@ $usage .= "\t\t            : <d2>: '1' if final 3 nt are a valid in-frame stop c
 $usage .= "\t\t            : <d3>: 1st position of first in-frame stop codon [1..seqlen], 0 if none found\n";
 #$usage .= "\t\t-skipinc   : skip examination of incomplete CDS'\n";
 
+my @altstart_A = undef;
+if(defined $altstart_str) { 
+  $do_altstart = 1;
+  if($altstart_str !~ m/^([ACGT]{3},)*[ACGT]{3}$/) { 
+    die "ERROR -altstart string invalid, must be codons (A|C|G|T only) separated by commas";
+  }
+  @altstart_A = split(",", $altstart_str);
+}
+
 if($do_nostop && (! $do_endatstop)) { 
   die "ERROR -nostop requires -endatstop";
 }
 if($do_startstop && $do_liststarts) { 
   die "ERROR -startstop and -liststarts cannot be used in combination";
+}
+if($do_altstart && ((! $do_reqstart) && (! $do_startstop))) { 
+  die "ERROR -altstart requires either -reqstart or -startstop";
 }
 
 # turn off translate mode if nec
@@ -88,7 +105,7 @@ for(my $i = 0; $i < $nseq; $i++) {
 
   if($do_translate) { 
     # 2. translate the CDS sequence or 
-    my ($prot_translated, $starts_with_start, $stops_with_stop, undef) = translateDNA($cds_seq, $do_endatstop, $do_nostop);
+    my ($prot_translated, $starts_with_start, $stops_with_stop, undef) = translateDNA($cds_seq, $do_endatstop, $do_nostop, \@altstart_A);
 
     # 3. output the protein sequence
     my $do_not_output = 0;
@@ -117,7 +134,7 @@ for(my $i = 0; $i < $nseq; $i++) {
     print("\n");
   }
   elsif($do_startstop) { 
-    my ($prot_translated, $starts_with_start, $stops_with_stop, $is_full) = translateDNA($cds_seq, 1, 0); # $do_endatstop: 1, $do_nostop: 0
+    my ($prot_translated, $starts_with_start, $stops_with_stop, $is_full) = translateDNA($cds_seq, 1, 0, \@altstart_A); # $do_endatstop: 1, $do_nostop: 0
     my $prot_len   = length($prot_translated);
     my $final_char = substr($prot_translated, -1, 1);
     my $first_stop;
@@ -142,7 +159,9 @@ exit 0;
 # Args:       $cds_seq:      CDS sequence
 #             $do_endatstop: '1' to end at first stop codon
 #             $do_nostop:    '1' to not output stop codon
-# Returns:    Two values: 
+#             $altstart_AR:       ref to array of allowed st   '1' if translated protein sequence is full length 
+#                                 (starts with start, stops with stop, length is a multiple of 3, no internal stops)
+# Returns:    Four values: 
 #             $protein:           translated protein sequence as a string
 #             $starts_with_start: '1' if first 3 nt are 'ATG'
 #             $stops_with_stop:   '1' if final codon is 'TAA' or 'TAG' or 'TGA' that is in-frame of stop
@@ -150,10 +169,10 @@ exit 0;
 #                                 (starts with start, stops with stop, length is a multiple of 3, no internal stops)
 sub translateDNA { 
   my $sub_name = "translateDNA()";
-  my $nargs_exp = 3;
+  my $nargs_exp = 4;
   if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
 
-  my ($cds_seq, $do_endatstop, $do_nostop) = (@_);
+  my ($cds_seq, $do_endatstop, $do_nostop, $altstart_AR) = (@_);
   
   my $length  = length($cds_seq);
   if($length < 3) { 
@@ -200,6 +219,16 @@ sub translateDNA {
 
   my $starts_with_start = ($start_aa eq "M") ? 1 : 0;
   my $stops_with_stop  = (($length % 3 == 0) && ($stop_aa eq "*")) ? 1 : 0;
+
+  if(defined $altstart_AR) { 
+    $starts_with_start = 0; # starts off as false
+    my $first_codon = substr($cds_seq, 0, 3);
+    foreach my $altstart (@{$altstart_AR}) { 
+      if($first_codon eq $altstart) { 
+        $starts_with_start = 1;
+      }
+    }
+  }
 
   # determine if we translated start..stop, and had valid start and stop
   my $is_full = 0;
