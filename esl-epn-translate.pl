@@ -54,7 +54,7 @@ $usage .= "\t\t            : <d2>: '1' if final 3 nt are a valid in-frame stop c
 $usage .= "\t\t            : <d3>: 1st position of first in-frame stop codon [1..seqlen], 0 if none found\n";
 #$usage .= "\t\t-skipinc   : skip examination of incomplete CDS'\n";
 
-my @altstart_A = undef;
+my @altstart_A = ();
 if(defined $altstart_str) { 
   $do_altstart = 1;
   if($altstart_str !~ m/^([ACGT]{3},)*[ACGT]{3}$/) { 
@@ -220,7 +220,7 @@ sub translateDNA {
   my $starts_with_start = ($start_aa eq "M") ? 1 : 0;
   my $stops_with_stop  = (($length % 3 == 0) && ($stop_aa eq "*")) ? 1 : 0;
 
-  if(defined $altstart_AR) { 
+  if(@{$altstart_AR}) { 
     $starts_with_start = 0; # starts off as false
     my $first_codon = substr($cds_seq, 0, 3);
     foreach my $altstart (@{$altstart_AR}) { 
