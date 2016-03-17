@@ -22,12 +22,13 @@ my $do_endatstop   = 0; # if '1' stop translating at first stop encountered, cha
 my $do_nostop      = 0; # if '1' do not translate stop to '*', changed to 1 if -endatstop is invoked
 my $do_altstart    = 0;      # if '1' -altstart is used (requires -startstop)
 my $altstart_str   = undef; 
+my $do_zerolen     = 0; # set to '1' with -zerolen, which allows output of length zero sequences,
+                        # else do not output length zero sequences
 
 # options for alternative output:
 my $do_liststarts = 0; # if '1' DO NOT translate the sequences, instead list positions/frames of all start codons
 my $do_startstop  = 0; # if '1' DO NOT translate the sequences, instead find position of first in-frame stop 
                        # codon and report that for each seq, 0 for none
-
 
 &GetOptions( "reqstart"    => \$do_reqstart,
              "reqstop"     => \$do_reqstop,
@@ -35,17 +36,20 @@ my $do_startstop  = 0; # if '1' DO NOT translate the sequences, instead find pos
              "nostop"      => \$do_nostop,
              "altstart=s"  => \$altstart_str,
              "liststarts"  => \$do_liststarts,
+             "zerolen"     => \$do_zerolen,
              "startstop"   => \$do_startstop)  || die "ERROR unknown option";
 
 my $usage;
 $usage  = "esl-epn-translate.pl [OPTIONS] <input fasta file to translate (or analyze)>\n\n";
 $usage .= "\tOPTIONS THAT AFFECT TRANSLATION:\n";
-$usage .= "\t\t-reqstart   : only output translated sequences that start with a valid start codon\n";
-$usage .= "\t\t-reqstop    : only output translated sequences that stop  with a valid stop  codon\n";
-$usage .= "\t\t-endatstop  : terminate translation at first stop codon      [default: keep going]\n";
-$usage .= "\t\t-nostop     : do not print stop codons (requires -endatstop) [default: do, as '*' chars]\n";
-$usage .= "\t\t-altstart <s>: accept only start codons specified in <s> (each separated by a comma)\n";
-$usage .= "\t\t               (only valid in combination with -reqstart or -startstop\n";
+$usage .= "\t\t-reqstart     : only output translated sequences that start with a valid start codon\n";
+$usage .= "\t\t-reqstop      : only output translated sequences that stop  with a valid stop  codon\n";
+$usage .= "\t\t-endatstop    : terminate translation at first stop codon      [default: keep going]\n";
+$usage .= "\t\t-nostop       : do not print stop codons (requires -endatstop) [default: do, as '*' chars]\n";
+$usage .= "\t\t-altstart <s> : accept only start codons specified in <s> (each separated by a comma)\n";
+$usage .= "\t\t                (only valid in combination with -reqstart or -startstop\n";
+$usage .= "\t\t-zerolen      : output length zero sequences (translation of only a stop codon), usually we do not\n";
+
 $usage .= "\tOPTIONS FOR ALTERNATIVE OUTPUT (NO TRANSLATION PERFORMED)\n";
 $usage .= "\t\t-liststarts : list start positions and frames of all start codons in each sequence <position 1..L>:<frame 0|1|2>, ...\n";
 $usage .= "\t\t-startstop  : output three numbers per sequence on same line, separated by space:\n";
@@ -71,6 +75,15 @@ if($do_startstop && $do_liststarts) {
 }
 if($do_altstart && ((! $do_reqstart) && (! $do_startstop))) { 
   die "ERROR -altstart requires either -reqstart or -startstop";
+}
+if($do_zerolen && $do_liststarts) { 
+  die "ERROR -zerolen is incompatible with -liststarts";
+}
+if($do_zerolen && $do_startstop) { 
+  die "ERROR -zerolen is incompatible with -startstop";
+}
+if($do_zerolen && (! $do_nostop)) { 
+  die "ERROR -zerolen requires -nostop";
 }
 
 # turn off translate mode if nec
@@ -112,7 +125,9 @@ for(my $i = 0; $i < $nseq; $i++) {
     if($do_reqstart && (! $starts_with_start)) { $do_not_output = 1; }
     if($do_reqstop  && (! $stops_with_stop))   { $do_not_output = 1; }
     if(! $do_not_output) { 
-      printf(">%s%s\n$prot_translated\n", $cds_name, "-translated");
+      if($do_zerolen || ($prot_translated ne "")) { 
+        printf(">%s%s\n$prot_translated\n", $cds_name, "-translated");
+      }
     }
   }
   if($do_liststarts) { 
