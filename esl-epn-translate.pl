@@ -143,7 +143,7 @@ for(my $i = 0; $i < $nseq; $i++) {
       my $rev_cds_seq = revcomp($cds_seq);
       for(my $in_revcomp = 0; $in_revcomp <= 1; $in_revcomp++) { 
         for(my $frame = 0; $frame <= 2; $frame++) { 
-          my $cur_cds_seq = $in_revcomp ? substr($cds_seq, $frame) : substr($rev_cds_seq, $frame);
+          my $cur_cds_seq = $in_revcomp ? substr($rev_cds_seq, $frame) : substr($cds_seq, $frame);
           my ($prot_translated, $starts_with_start, $stops_with_stop, undef) = translateDNA($cur_cds_seq, $do_endatstop, $do_nostop, \@altstart_A);
       
           # 3. output the protein sequence
