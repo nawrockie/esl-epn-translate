@@ -25,6 +25,9 @@ my $altstart_str   = undef;
 my $do_zerolen     = 0; # set to '1' with -zerolen, which allows output of length zero sequences,
                         # else do not output length zero sequences
 
+# options for six-frame translation
+my $do_sixframe = 0; # if '1' output translation in all 6 frames
+
 # options for alternative output:
 my $do_liststarts = 0; # if '1' DO NOT translate the sequences, instead list positions/frames of all start codons
 my $do_startstop  = 0; # if '1' DO NOT translate the sequences, instead find position of first in-frame stop 
@@ -35,8 +38,9 @@ my $do_startstop  = 0; # if '1' DO NOT translate the sequences, instead find pos
              "endatstop"   => \$do_endatstop,
              "nostop"      => \$do_nostop,
              "altstart=s"  => \$altstart_str,
-             "liststarts"  => \$do_liststarts,
              "zerolen"     => \$do_zerolen,
+             "six"         => \$do_sixframe,
+             "liststarts"  => \$do_liststarts,
              "startstop"   => \$do_startstop)  || die "ERROR unknown option";
 
 my $usage;
@@ -49,7 +53,8 @@ $usage .= "\t\t-nostop       : do not print stop codons (requires -endatstop) [d
 $usage .= "\t\t-altstart <s> : accept only start codons specified in <s> (each separated by a comma)\n";
 $usage .= "\t\t                (only valid in combination with -reqstart or -startstop\n";
 $usage .= "\t\t-zerolen      : output length zero sequences (translation of only a stop codon), usually we do not\n";
-
+$usage .= "\tOPTIONS FOR SIX-FRAME TRANSLATION\n";
+$usage .= "\t\t-six: output translation in all six frames\n";
 $usage .= "\tOPTIONS FOR ALTERNATIVE OUTPUT (NO TRANSLATION PERFORMED)\n";
 $usage .= "\t\t-liststarts : list start positions and frames of all start codons in each sequence <position 1..L>:<frame 0|1|2>, ...\n";
 $usage .= "\t\t-startstop  : output three numbers per sequence on same line, separated by space:\n";
@@ -85,6 +90,9 @@ if($do_zerolen && $do_startstop) {
 if($do_zerolen && (! $do_nostop)) { 
   die "ERROR -zerolen requires -nostop";
 }
+if($do_sixframe && ($do_reqstart || $do_reqstop || $do_endatstop || $do_nostop || $do_altstart || $do_zerolen || $do_liststarts || $do_startstop)) { 
+  die "ERROR -six is incompatible with all other options";
+}
 
 # turn off translate mode if nec
 if($do_liststarts || $do_startstop) { 
@@ -117,20 +125,35 @@ for(my $i = 0; $i < $nseq; $i++) {
   $cds_name =~ s/\s+.+$//;
 
   if($do_translate) { 
-    # 2. translate the CDS sequence or 
-    my ($prot_translated, $starts_with_start, $stops_with_stop, undef) = translateDNA($cds_seq, $do_endatstop, $do_nostop, \@altstart_A);
-
-    # 3. output the protein sequence
-    my $do_not_output = 0;
-    if($do_reqstart && (! $starts_with_start)) { $do_not_output = 1; }
-    if($do_reqstop  && (! $stops_with_stop))   { $do_not_output = 1; }
-    if(! $do_not_output) { 
-      if($do_zerolen || ($prot_translated ne "")) { 
-        printf(">%s%s\n$prot_translated\n", $cds_name, "-translated");
+    # 2. translate the CDS sequence
+    if(! $do_sixframe) { # default, output a single translation
+      my ($prot_translated, $starts_with_start, $stops_with_stop, undef) = translateDNA($cds_seq, $do_endatstop, $do_nostop, \@altstart_A);
+      
+      # 3. output the protein sequence
+      my $do_not_output = 0;
+      if($do_reqstart && (! $starts_with_start)) { $do_not_output = 1; }
+      if($do_reqstop  && (! $stops_with_stop))   { $do_not_output = 1; }
+      if(! $do_not_output) { 
+        if($do_zerolen || ($prot_translated ne "")) { 
+          printf(">%s%s\n$prot_translated\n", $cds_name, "-translated");
+        }
+      }
+    } # end of 'if(! $do_sixframe)'
+    else { # entered if $do_sixframe is TRUE
+      my $rev_cds_seq = revcomp($cds_seq);
+      for(my $in_revcomp = 0; $in_revcomp <= 1; $in_revcomp++) { 
+        for(my $frame = 0; $frame <= 2; $frame++) { 
+          my $cur_cds_seq = $in_revcomp ? substr($cds_seq, $frame) : substr($rev_cds_seq, $frame);
+          my ($prot_translated, $starts_with_start, $stops_with_stop, undef) = translateDNA($cur_cds_seq, $do_endatstop, $do_nostop, \@altstart_A);
+      
+          # 3. output the protein sequence
+          printf(">%s%s\n$prot_translated\n", $cds_name, sprintf("-translated.frame%s%d", ($in_revcomp ? "-" : "+"), $frame));
+        }
       }
     }
   }
   if($do_liststarts) { 
+    if($do_sixframe) { die "ERROR, trying to list starts, but -six enabled."; }
     $cds_seq =~ tr/a-z/A-Z/;
     $cds_seq =~ tr/U/T/;
     my $posn = 0;
@@ -174,8 +197,8 @@ exit 0;
 # Args:       $cds_seq:      CDS sequence
 #             $do_endatstop: '1' to end at first stop codon
 #             $do_nostop:    '1' to not output stop codon
-#             $altstart_AR:       ref to array of allowed st   '1' if translated protein sequence is full length 
-#                                 (starts with start, stops with stop, length is a multiple of 3, no internal stops)
+#             $altstart_AR:       ref to array of allowed starts
+#                                 
 # Returns:    Four values: 
 #             $protein:           translated protein sequence as a string
 #             $starts_with_start: '1' if first 3 nt are 'ATG'
@@ -512,4 +535,27 @@ sub translateCodon {
 
   # if($do_verbose) { print "translating $codon to X\n"; }
   return "X"; 
+}
+
+# Subroutine: revcomp()
+# Args:       $seq:          sequence to reverse complement
+#                                 
+# Returns:    $revcomp_seq:  reverse complemented sequence
+#
+sub revcomp { 
+  my $sub_name = "revcomp()";
+  my $nargs_exp = 1;
+  if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
+
+  my ($seq) = (@_);
+
+  # following from esl_sq.c:esl_sq_ReverseComplement() from Easel 0.43 (bundled with infernal 1.1.2)
+  # first complement the sequence
+  if($seq =~ m/[^ACGTURYMKSWHBVDNXacgturymkswhbvdnx]/) { 
+    die "ERROR in revcomp, sequence matches character other than those in ACGTURYMKSWHBVDNXacgturymkswhbvdnx:\n$seq\n"; 
+  }
+  my $comp_seq = $seq;
+  $comp_seq =~ tr/ACGTURYMKSWHBVDNXacgturymkswhbvdnx/TGCAAYRKMSWDVBHNXtgcaayrkmswdvbhnx/;
+  my $revcomp_seq = reverse $seq;
+  return $revcomp_seq;
 }
