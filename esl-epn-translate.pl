@@ -556,6 +556,10 @@ sub revcomp {
   }
   my $comp_seq = $seq;
   $comp_seq =~ tr/ACGTURYMKSWHBVDNXacgturymkswhbvdnx/TGCAAYRKMSWDVBHNXtgcaayrkmswdvbhnx/;
-  my $revcomp_seq = reverse $seq;
+  my $revcomp_seq = reverse $comp_seq;
+
+#  printf("in revcomp():   seq is $seq\n");
+#  printf("in revcomp(): rcseq is $revcomp_seq\n");
+  
   return $revcomp_seq;
 }
