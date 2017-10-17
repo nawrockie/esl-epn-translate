@@ -44,6 +44,8 @@ my $do_startstop  = 0; # if '1' DO NOT translate the sequences, instead find pos
              "startstop"   => \$do_startstop)  || die "ERROR unknown option";
 
 my $usage;
+$usage  = "esl-epn-translate.pl v0.01\n\n";
+$usage  = "Usage:\n");
 $usage  = "esl-epn-translate.pl [OPTIONS] <input fasta file to translate (or analyze)>\n\n";
 $usage .= "\tOPTIONS THAT AFFECT TRANSLATION:\n";
 $usage .= "\t\t-reqstart     : only output translated sequences that start with a valid start codon\n";
