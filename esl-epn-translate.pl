@@ -121,6 +121,7 @@ for(my $i = 0; $i < $nseq; $i++) {
   # 1. fetch the next sequence to translate from $in_fafile
   my ($cds_name, $cds_seq) = split(/\n/, $sqfile->fetch_consecutive_seqs(1, "", -1, undef));
   $cds_name =~ s/^\>//;
+  $cds_seq  =~ tr/Uu/Tt/; # convert U->T (RNA->DNA)
   my $cds_desc = $cds_name; 
   $cds_desc =~ s/^\S+//;
   $cds_desc =~ s/^\s+//;
