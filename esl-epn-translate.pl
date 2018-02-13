@@ -44,7 +44,7 @@ my $do_startstop  = 0; # if '1' DO NOT translate the sequences, instead find pos
              "startstop"   => \$do_startstop)  || die "ERROR unknown option";
 
 my $usage;
-$usage  = "esl-epn-translate.pl v0.02\n\n";
+$usage  = "esl-epn-translate.pl v0.04\n\n";
 $usage  = "Usage:\n";
 $usage  = "esl-epn-translate.pl [OPTIONS] <input fasta file to translate (or analyze)>\n\n";
 $usage .= "\tOPTIONS THAT AFFECT TRANSLATION:\n";
