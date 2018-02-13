@@ -44,7 +44,7 @@ my $do_startstop  = 0; # if '1' DO NOT translate the sequences, instead find pos
              "startstop"   => \$do_startstop)  || die "ERROR unknown option";
 
 my $usage;
-$usage  = "esl-epn-translate.pl v0.02\n\n";
+$usage  = "esl-epn-translate.pl v0.04\n\n";
 $usage  = "Usage:\n";
 $usage  = "esl-epn-translate.pl [OPTIONS] <input fasta file to translate (or analyze)>\n\n";
 $usage .= "\tOPTIONS THAT AFFECT TRANSLATION:\n";
@@ -121,6 +121,7 @@ for(my $i = 0; $i < $nseq; $i++) {
   # 1. fetch the next sequence to translate from $in_fafile
   my ($cds_name, $cds_seq) = split(/\n/, $sqfile->fetch_consecutive_seqs(1, "", -1, undef));
   $cds_name =~ s/^\>//;
+  $cds_seq  =~ tr/Uu/Tt/; # convert U->T (RNA->DNA)
   my $cds_desc = $cds_name; 
   $cds_desc =~ s/^\S+//;
   $cds_desc =~ s/^\s+//;
